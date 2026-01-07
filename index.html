@@ -1,0 +1,188 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Voxel LOD Test</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#000; }
+  </style>
+</head>
+<body>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js"
+
+// =====================
+// === yuzu noise ======
+// =====================
+const seed = 12345
+const chankSize = 32
+const highMultiplier = 5
+const octave = 5
+const oceanHigh = 170
+
+function lerp(t){ return t*t*(3-2*t) }
+
+function hash(x,z,r){
+  const temp = Math.sqrt(Math.abs(seed*(1+(x-z))))+1664525*x+13904223*z
+  let result = temp%(r*1.732)
+  result = (result*temp)%(r*1.414)
+  result = Math.round(result)%r
+  return (result+r)%r
+}
+
+function gen(x,z){
+  const cx=Math.floor(x), cz=Math.floor(z)
+  const v00=hash(cx,cz,100)
+  const v10=hash(cx+1,cz,100)
+  const v01=hash(cx,cz+1,100)
+  const v11=hash(cx+1,cz+1,100)
+  const x0=v10-v00
+  const x1=v11-v01
+  const px=lerp(x-cx)
+  const h0=v00+px*x0
+  const h1=v01+px*x1
+  const pz=lerp(z-cz)
+  return h0+pz*(h1-h0)
+}
+
+function setHeight(x,z){
+  const gx=x/chankSize
+  const gz=z/chankSize
+  let oh=2**octave
+  let ol=1
+  let y=0
+  for(let i=0;i<octave;i++){
+    y+=(gen(gx/ol,gz/ol))/oh
+    ol*=2
+    oh/=2
+  }
+  return y*highMultiplier-oceanHigh
+}
+
+// =====================
+// === three.js ========
+// =====================
+const scene = new THREE.Scene()
+scene.fog = new THREE.Fog(0xaaccff, 200, 1200)
+
+const camera = new THREE.PerspectiveCamera(
+  70, innerWidth/innerHeight, 0.1, 5000
+)
+camera.position.set(0,200,400)
+
+const renderer = new THREE.WebGLRenderer({antialias:true})
+renderer.setSize(innerWidth, innerHeight)
+document.body.appendChild(renderer.domElement)
+
+const light = new THREE.DirectionalLight(0xffffff,1)
+light.position.set(300,500,200)
+scene.add(light)
+scene.add(new THREE.AmbientLight(0x888888))
+
+// =====================
+// === LOD terrain =====
+// =====================
+const CHUNK_RANGE = 6   // 何チャンク分描くか
+const chunks = []
+
+function createChunk(cx, cz, step){
+  const size = chankSize
+  const geo = new THREE.PlaneGeometry(
+    size, size,
+    size/step, size/step
+  )
+  geo.rotateX(-Math.PI/2)
+
+  const pos = geo.attributes.position
+  for(let i=0;i<pos.count;i++){
+    const x = pos.getX(i) + cx*size
+    const z = pos.getZ(i) + cz*size
+    const y = setHeight(x, z)
+    pos.setY(i, y)
+  }
+  geo.computeVertexNormals()
+
+  const mat = new THREE.MeshStandardMaterial({
+    color:0x88aa88
+  })
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.position.set(cx*size,0,cz*size)
+  return mesh
+}
+
+function getLOD(dist){
+  if(dist < 150) return 1
+  if(dist < 300) return 2
+  if(dist < 600) return 4
+  if(dist < 1200) return 8
+  return 16
+}
+
+function rebuildChunks(){
+  chunks.forEach(c=>scene.remove(c))
+  chunks.length=0
+
+  const px = Math.floor(camera.position.x/chankSize)
+  const pz = Math.floor(camera.position.z/chankSize)
+
+  for(let x=-CHUNK_RANGE;x<=CHUNK_RANGE;x++){
+    for(let z=-CHUNK_RANGE;z<=CHUNK_RANGE;z++){
+      const cx = px+x
+      const cz = pz+z
+      const dx = (cx*chankSize-camera.position.x)
+      const dz = (cz*chankSize-camera.position.z)
+      const dist = Math.hypot(dx,dz)
+      const step = getLOD(dist)
+      const chunk = createChunk(cx,cz,step)
+      scene.add(chunk)
+      chunks.push(chunk)
+    }
+  }
+}
+
+// =====================
+// === water surface ===
+// =====================
+const waterGeo = new THREE.PlaneGeometry(5000,5000)
+waterGeo.rotateX(-Math.PI/2)
+const waterMat = new THREE.MeshBasicMaterial({
+  color:0x3355aa,
+  transparent:true,
+  opacity:0.6
+})
+const water = new THREE.Mesh(waterGeo, waterMat)
+water.position.y = oceanHigh
+scene.add(water)
+
+// =====================
+// === loop ============
+// =====================
+rebuildChunks()
+
+function animate(){
+  requestAnimationFrame(animate)
+
+  // 水中fogずる
+  const ground = setHeight(camera.position.x, camera.position.z)
+  if(camera.position.y < oceanHigh && camera.position.y > ground){
+    scene.fog.color.set(0x335577)
+    scene.fog.near = 1
+    scene.fog.far  = 25
+  }else{
+    scene.fog.color.set(0xaaccff)
+    scene.fog.near = 200
+    scene.fog.far  = 1200
+  }
+
+  renderer.render(scene, camera)
+}
+animate()
+
+window.onresize=()=>{
+  camera.aspect=innerWidth/innerHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(innerWidth, innerHeight)
+}
+</script>
+</body>
+</html>
