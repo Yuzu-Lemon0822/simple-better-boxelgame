@@ -6,7 +6,6 @@
 <style>
 body{margin:0;overflow:hidden;background:#000;}
 
-/* ==== UI ==== */
 #ui{
   position:fixed;
   left:20px;
@@ -17,9 +16,8 @@ body{margin:0;overflow:hidden;background:#000;}
   color:#fff;
   font-size:14px;
 }
-#ui input{width:140px;}
+#ui input{width:160px;}
 
-/* ==== Stick ==== */
 #stick{
   position:fixed;
   left:30px;bottom:30px;
@@ -29,7 +27,6 @@ body{margin:0;overflow:hidden;background:#000;}
   touch-action:none;
 }
 
-/* ==== Buttons ==== */
 #up,#down{
   position:fixed;
   right:30px;
@@ -44,8 +41,8 @@ body{margin:0;overflow:hidden;background:#000;}
 
 <body>
 <div id="ui">
-  <input id="viewRange" type="range" min="4" max="20" value="6">
-  <div id="label">View: 6</div>
+  <input id="viewRange" type="range" min="4" max="100" value="8">
+  <div id="label">View: 8</div>
 </div>
 
 <div id="stick"></div>
@@ -56,213 +53,19 @@ body{margin:0;overflow:hidden;background:#000;}
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js"
 
 // =====================
-// === yuzu noise ======
+// === terrain params ==
 // =====================
-const seed=12345
-const chankSize=32
-const highMultiplier=5
-const octave=5
-const oceanHigh=170
+const seed = 12345
+const chankSize = 32
+const highMultiplier = 5
+const octave = 5
+const oceanHigh = 120      // ↓ 水面下げた
+const heightBias = 40      // ← 地形全体のYバイアス
 
+// =====================
+// === noise ===========
+// =====================
 const lerp=t=>t*t*(3-2*t)
 
 function hash(x,z,r){
-  const t=Math.sqrt(Math.abs(seed*(1+(x-z))))+1664525*x+13904223*z
-  let v=t%(r*1.732)
-  v=(v*t)%(r*1.414)
-  return ((Math.round(v)%r)+r)%r
-}
-
-function gen(x,z){
-  const cx=Math.floor(x),cz=Math.floor(z)
-  const v00=hash(cx,cz,100)
-  const v10=hash(cx+1,cz,100)
-  const v01=hash(cx,cz+1,100)
-  const v11=hash(cx+1,cz+1,100)
-  const px=lerp(x-cx)
-  const h0=v00+px*(v10-v00)
-  const h1=v01+px*(v11-v01)
-  return h0+lerp(z-cz)*(h1-h0)
-}
-
-function setHeight(x,z){
-  let oh=2**octave,ol=1,y=0
-  const gx=x/chankSize,gz=z/chankSize
-  for(let i=0;i<octave;i++){
-    y+=gen(gx/ol,gz/ol)/oh
-    ol*=2;oh/=2
-  }
-  return y*highMultiplier-oceanHigh
-}
-
-// =====================
-// === three.js ========
-// =====================
-const scene=new THREE.Scene()
-scene.fog=new THREE.Fog(0xaaccff,200,1200)
-
-const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,8000)
-camera.position.set(0,200,400)
-
-const renderer=new THREE.WebGLRenderer({antialias:true})
-renderer.setSize(innerWidth,innerHeight)
-document.body.appendChild(renderer.domElement)
-
-scene.add(new THREE.DirectionalLight(0xffffff,1).position.set(300,500,200))
-scene.add(new THREE.AmbientLight(0x888888))
-
-// =====================
-// === LOD terrain =====
-// =====================
-let CHUNK_RANGE=6
-const chunks=[]
-
-function getLOD(d){
-  if(d<150)return 1
-  if(d<300)return 2
-  if(d<600)return 4
-  if(d<1200)return 8
-  return 16
-}
-
-function createChunk(cx,cz,step){
-  const geo=new THREE.PlaneGeometry(
-    chankSize,chankSize,
-    chankSize/step,chankSize/step
-  )
-  geo.rotateX(-Math.PI/2)
-  const pos=geo.attributes.position
-  for(let i=0;i<pos.count;i++){
-    const x=pos.getX(i)+cx*chankSize
-    const z=pos.getZ(i)+cz*chankSize
-    pos.setY(i,setHeight(x,z))
-  }
-  geo.computeVertexNormals()
-  const mesh=new THREE.Mesh(
-    geo,new THREE.MeshStandardMaterial({color:0x88aa88})
-  )
-  mesh.position.set(cx*chankSize,0,cz*chankSize)
-  return mesh
-}
-
-function rebuild(){
-  chunks.forEach(c=>scene.remove(c))
-  chunks.length=0
-  const px=Math.floor(camera.position.x/chankSize)
-  const pz=Math.floor(camera.position.z/chankSize)
-  for(let x=-CHUNK_RANGE;x<=CHUNK_RANGE;x++){
-    for(let z=-CHUNK_RANGE;z<=CHUNK_RANGE;z++){
-      const cx=px+x,cz=pz+z
-      const d=Math.hypot(
-        cx*chankSize-camera.position.x,
-        cz*chankSize-camera.position.z
-      )
-      const c=createChunk(cx,cz,getLOD(d))
-      scene.add(c);chunks.push(c)
-    }
-  }
-}
-rebuild()
-
-// =====================
-// === water ===========
-// =====================
-const water=new THREE.Mesh(
-  new THREE.PlaneGeometry(10000,10000).rotateX(-Math.PI/2),
-  new THREE.MeshBasicMaterial({
-    color:0x3355aa,transparent:true,opacity:0.6
-  })
-)
-water.position.y=oceanHigh
-scene.add(water)
-
-// =====================
-// === view slider =====
-// =====================
-const slider=document.getElementById("viewRange")
-const label=document.getElementById("label")
-
-slider.oninput=()=>{
-  CHUNK_RANGE=Number(slider.value)
-  label.textContent="View: "+CHUNK_RANGE
-  scene.fog.far=CHUNK_RANGE*chankSize*3
-  rebuild()
-}
-
-// =====================
-// === controls ========
-// =====================
-let yaw=0,pitch=0
-const speed=2.5,look=0.005
-const vel=new THREE.Vector3()
-
-const stick=document.getElementById("stick")
-let stickVec={x:0,y:0},stickTouch=null
-
-stick.ontouchstart=e=>stickTouch=e.touches[0]
-stick.ontouchmove=e=>{
-  if(!stickTouch)return
-  const r=stick.getBoundingClientRect()
-  stickVec.x=(e.touches[0].clientX-(r.left+r.width/2))/40
-  stickVec.y=(e.touches[0].clientY-(r.top+r.height/2))/40
-}
-stick.ontouchend=()=>{stickVec.x=stickVec.y=0;stickTouch=null}
-
-let lookTouch=null
-renderer.domElement.ontouchstart=e=>{
-  if(e.touches[0].clientX>innerWidth/2)lookTouch=e.touches[0]
-}
-renderer.domElement.ontouchmove=e=>{
-  if(!lookTouch)return
-  const t=e.touches[0]
-  yaw-=(t.clientX-lookTouch.clientX)*look
-  pitch-=(t.clientY-lookTouch.clientY)*look
-  pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch))
-  lookTouch=t
-}
-renderer.domElement.ontouchend=()=>lookTouch=null
-
-let vertical=0
-up.ontouchstart=()=>vertical=1
-down.ontouchstart=()=>vertical=-1
-up.ontouchend=down.ontouchend=()=>vertical=0
-
-// =====================
-// === loop ============
-// =====================
-function animate(){
-  requestAnimationFrame(animate)
-
-  const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw))
-  const right=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw))
-
-  vel.copy(dir).multiplyScalar(-stickVec.y*speed)
-  vel.addScaledVector(right,stickVec.x*speed)
-  vel.y=vertical*speed
-  camera.position.add(vel)
-
-  camera.rotation.order="YXZ"
-  camera.rotation.y=yaw
-  camera.rotation.x=pitch
-
-  const g=setHeight(camera.position.x,camera.position.z)
-  if(camera.position.y<oceanHigh && camera.position.y>g){
-    scene.fog.color.set(0x335577)
-    scene.fog.near=1;scene.fog.far=25
-  }else{
-    scene.fog.color.set(0xaaccff)
-    scene.fog.near=200
-  }
-
-  renderer.render(scene,camera)
-}
-animate()
-
-onresize=()=>{
-  camera.aspect=innerWidth/innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(innerWidth,innerHeight)
-}
-</script>
-</body>
-</html>
+  const t=Math.sq
