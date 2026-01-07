@@ -1,60 +1,74 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Voxel LOD Test</title>
-  <style>
-    body { margin:0; overflow:hidden; background:#000; }
-  </style>
+<meta charset="utf-8">
+<title>simple-better-boxelgame</title>
+<style>
+body{margin:0;overflow:hidden;background:#000;}
+#stick{
+  position:fixed;
+  left:30px;bottom:30px;
+  width:120px;height:120px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.15);
+  touch-action:none;
+}
+#up,#down{
+  position:fixed;
+  right:30px;
+  width:60px;height:60px;
+  font-size:24px;
+  opacity:0.7;
+}
+#up{bottom:130px;}
+#down{bottom:60px;}
+</style>
 </head>
+
 <body>
+<div id="stick"></div>
+<button id="up">▲</button>
+<button id="down">▼</button>
+
 <script type="module">
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js"
 
 // =====================
 // === yuzu noise ======
 // =====================
-const seed = 12345
-const chankSize = 32
-const highMultiplier = 5
-const octave = 5
-const oceanHigh = 170
+const seed=12345
+const chankSize=32
+const highMultiplier=5
+const octave=5
+const oceanHigh=170
 
-function lerp(t){ return t*t*(3-2*t) }
+const lerp=t=>t*t*(3-2*t)
 
 function hash(x,z,r){
-  const temp = Math.sqrt(Math.abs(seed*(1+(x-z))))+1664525*x+13904223*z
-  let result = temp%(r*1.732)
-  result = (result*temp)%(r*1.414)
-  result = Math.round(result)%r
-  return (result+r)%r
+  const t=Math.sqrt(Math.abs(seed*(1+(x-z))))+1664525*x+13904223*z
+  let v=t%(r*1.732)
+  v=(v*t)%(r*1.414)
+  return ((Math.round(v)%r)+r)%r
 }
 
 function gen(x,z){
-  const cx=Math.floor(x), cz=Math.floor(z)
+  const cx=Math.floor(x),cz=Math.floor(z)
   const v00=hash(cx,cz,100)
   const v10=hash(cx+1,cz,100)
   const v01=hash(cx,cz+1,100)
   const v11=hash(cx+1,cz+1,100)
-  const x0=v10-v00
-  const x1=v11-v01
   const px=lerp(x-cx)
-  const h0=v00+px*x0
-  const h1=v01+px*x1
-  const pz=lerp(z-cz)
-  return h0+pz*(h1-h0)
+  const h0=v00+px*(v10-v00)
+  const h1=v01+px*(v11-v01)
+  return h0+lerp(z-cz)*(h1-h0)
 }
 
 function setHeight(x,z){
-  const gx=x/chankSize
-  const gz=z/chankSize
-  let oh=2**octave
-  let ol=1
-  let y=0
+  let oh=2**octave,ol=1,y=0
+  const gx=x/chankSize,gz=z/chankSize
   for(let i=0;i<octave;i++){
-    y+=(gen(gx/ol,gz/ol))/oh
-    ol*=2
-    oh/=2
+    y+=gen(gx/ol,gz/ol)/oh
+    ol*=2;oh/=2
   }
   return y*highMultiplier-oceanHigh
 }
@@ -62,126 +76,157 @@ function setHeight(x,z){
 // =====================
 // === three.js ========
 // =====================
-const scene = new THREE.Scene()
-scene.fog = new THREE.Fog(0xaaccff, 200, 1200)
+const scene=new THREE.Scene()
+scene.fog=new THREE.Fog(0xaaccff,200,1200)
 
-const camera = new THREE.PerspectiveCamera(
-  70, innerWidth/innerHeight, 0.1, 5000
-)
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,5000)
 camera.position.set(0,200,400)
 
-const renderer = new THREE.WebGLRenderer({antialias:true})
-renderer.setSize(innerWidth, innerHeight)
+const renderer=new THREE.WebGLRenderer({antialias:true})
+renderer.setSize(innerWidth,innerHeight)
 document.body.appendChild(renderer.domElement)
 
-const light = new THREE.DirectionalLight(0xffffff,1)
-light.position.set(300,500,200)
-scene.add(light)
+scene.add(new THREE.DirectionalLight(0xffffff,1).position.set(300,500,200))
 scene.add(new THREE.AmbientLight(0x888888))
 
 // =====================
 // === LOD terrain =====
 // =====================
-const CHUNK_RANGE = 6   // 何チャンク分描くか
-const chunks = []
+const CHUNK_RANGE=6
+const chunks=[]
 
-function createChunk(cx, cz, step){
-  const size = chankSize
-  const geo = new THREE.PlaneGeometry(
-    size, size,
-    size/step, size/step
-  )
-  geo.rotateX(-Math.PI/2)
-
-  const pos = geo.attributes.position
-  for(let i=0;i<pos.count;i++){
-    const x = pos.getX(i) + cx*size
-    const z = pos.getZ(i) + cz*size
-    const y = setHeight(x, z)
-    pos.setY(i, y)
-  }
-  geo.computeVertexNormals()
-
-  const mat = new THREE.MeshStandardMaterial({
-    color:0x88aa88
-  })
-  const mesh = new THREE.Mesh(geo, mat)
-  mesh.position.set(cx*size,0,cz*size)
-  return mesh
-}
-
-function getLOD(dist){
-  if(dist < 150) return 1
-  if(dist < 300) return 2
-  if(dist < 600) return 4
-  if(dist < 1200) return 8
+function getLOD(d){
+  if(d<150)return 1
+  if(d<300)return 2
+  if(d<600)return 4
+  if(d<1200)return 8
   return 16
 }
 
-function rebuildChunks(){
+function createChunk(cx,cz,step){
+  const geo=new THREE.PlaneGeometry(
+    chankSize,chankSize,
+    chankSize/step,chankSize/step
+  )
+  geo.rotateX(-Math.PI/2)
+  const pos=geo.attributes.position
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i)+cx*chankSize
+    const z=pos.getZ(i)+cz*chankSize
+    pos.setY(i,setHeight(x,z))
+  }
+  geo.computeVertexNormals()
+  const mesh=new THREE.Mesh(
+    geo,new THREE.MeshStandardMaterial({color:0x88aa88})
+  )
+  mesh.position.set(cx*chankSize,0,cz*chankSize)
+  return mesh
+}
+
+function rebuild(){
   chunks.forEach(c=>scene.remove(c))
   chunks.length=0
-
-  const px = Math.floor(camera.position.x/chankSize)
-  const pz = Math.floor(camera.position.z/chankSize)
-
+  const px=Math.floor(camera.position.x/chankSize)
+  const pz=Math.floor(camera.position.z/chankSize)
   for(let x=-CHUNK_RANGE;x<=CHUNK_RANGE;x++){
     for(let z=-CHUNK_RANGE;z<=CHUNK_RANGE;z++){
-      const cx = px+x
-      const cz = pz+z
-      const dx = (cx*chankSize-camera.position.x)
-      const dz = (cz*chankSize-camera.position.z)
-      const dist = Math.hypot(dx,dz)
-      const step = getLOD(dist)
-      const chunk = createChunk(cx,cz,step)
-      scene.add(chunk)
-      chunks.push(chunk)
+      const cx=px+x,cz=pz+z
+      const d=Math.hypot(
+        cx*chankSize-camera.position.x,
+        cz*chankSize-camera.position.z
+      )
+      const c=createChunk(cx,cz,getLOD(d))
+      scene.add(c);chunks.push(c)
     }
   }
 }
+rebuild()
 
 // =====================
-// === water surface ===
+// === water ===========
 // =====================
-const waterGeo = new THREE.PlaneGeometry(5000,5000)
-waterGeo.rotateX(-Math.PI/2)
-const waterMat = new THREE.MeshBasicMaterial({
-  color:0x3355aa,
-  transparent:true,
-  opacity:0.6
-})
-const water = new THREE.Mesh(waterGeo, waterMat)
-water.position.y = oceanHigh
+const water=new THREE.Mesh(
+  new THREE.PlaneGeometry(5000,5000).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({
+    color:0x3355aa,transparent:true,opacity:0.6
+  })
+)
+water.position.y=oceanHigh
 scene.add(water)
+
+// =====================
+// === controls ========
+// =====================
+let yaw=0,pitch=0
+const speed=2.5,look=0.005
+const vel=new THREE.Vector3()
+
+const stick=document.getElementById("stick")
+let stickVec={x:0,y:0},stickTouch=null
+
+stick.ontouchstart=e=>stickTouch=e.touches[0]
+stick.ontouchmove=e=>{
+  if(!stickTouch)return
+  const r=stick.getBoundingClientRect()
+  stickVec.x=(e.touches[0].clientX-(r.left+r.width/2))/40
+  stickVec.y=(e.touches[0].clientY-(r.top+r.height/2))/40
+}
+stick.ontouchend=()=>{stickVec.x=stickVec.y=0;stickTouch=null}
+
+let lookTouch=null
+renderer.domElement.ontouchstart=e=>{
+  if(e.touches[0].clientX>innerWidth/2)lookTouch=e.touches[0]
+}
+renderer.domElement.ontouchmove=e=>{
+  if(!lookTouch)return
+  const t=e.touches[0]
+  yaw-=(t.clientX-lookTouch.clientX)*look
+  pitch-=(t.clientY-lookTouch.clientY)*look
+  pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,pitch))
+  lookTouch=t
+}
+renderer.domElement.ontouchend=()=>lookTouch=null
+
+let vertical=0
+up.ontouchstart=()=>vertical=1
+down.ontouchstart=()=>vertical=-1
+up.ontouchend=down.ontouchend=()=>vertical=0
 
 // =====================
 // === loop ============
 // =====================
-rebuildChunks()
-
 function animate(){
   requestAnimationFrame(animate)
 
-  // 水中fogずる
-  const ground = setHeight(camera.position.x, camera.position.z)
-  if(camera.position.y < oceanHigh && camera.position.y > ground){
+  const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw))
+  const right=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw))
+
+  vel.copy(dir).multiplyScalar(-stickVec.y*speed)
+  vel.addScaledVector(right,stickVec.x*speed)
+  vel.y=vertical*speed
+  camera.position.add(vel)
+
+  camera.rotation.order="YXZ"
+  camera.rotation.y=yaw
+  camera.rotation.x=pitch
+
+  const g=setHeight(camera.position.x,camera.position.z)
+  if(camera.position.y<oceanHigh && camera.position.y>g){
     scene.fog.color.set(0x335577)
-    scene.fog.near = 1
-    scene.fog.far  = 25
+    scene.fog.near=1;scene.fog.far=25
   }else{
     scene.fog.color.set(0xaaccff)
-    scene.fog.near = 200
-    scene.fog.far  = 1200
+    scene.fog.near=200;scene.fog.far=1200
   }
 
-  renderer.render(scene, camera)
+  renderer.render(scene,camera)
 }
 animate()
 
-window.onresize=()=>{
+onresize=()=>{
   camera.aspect=innerWidth/innerHeight
   camera.updateProjectionMatrix()
-  renderer.setSize(innerWidth, innerHeight)
+  renderer.setSize(innerWidth,innerHeight)
 }
 </script>
 </body>
