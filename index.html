@@ -5,6 +5,21 @@
 <title>simple-better-boxelgame</title>
 <style>
 body{margin:0;overflow:hidden;background:#000;}
+
+/* ==== UI ==== */
+#ui{
+  position:fixed;
+  left:20px;
+  top:20px;
+  background:rgba(0,0,0,0.45);
+  padding:10px;
+  border-radius:10px;
+  color:#fff;
+  font-size:14px;
+}
+#ui input{width:140px;}
+
+/* ==== Stick ==== */
 #stick{
   position:fixed;
   left:30px;bottom:30px;
@@ -13,6 +28,8 @@ body{margin:0;overflow:hidden;background:#000;}
   background:rgba(255,255,255,0.15);
   touch-action:none;
 }
+
+/* ==== Buttons ==== */
 #up,#down{
   position:fixed;
   right:30px;
@@ -26,6 +43,11 @@ body{margin:0;overflow:hidden;background:#000;}
 </head>
 
 <body>
+<div id="ui">
+  <input id="viewRange" type="range" min="4" max="20" value="6">
+  <div id="label">View: 6</div>
+</div>
+
 <div id="stick"></div>
 <button id="up">▲</button>
 <button id="down">▼</button>
@@ -79,7 +101,7 @@ function setHeight(x,z){
 const scene=new THREE.Scene()
 scene.fog=new THREE.Fog(0xaaccff,200,1200)
 
-const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,5000)
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,8000)
 camera.position.set(0,200,400)
 
 const renderer=new THREE.WebGLRenderer({antialias:true})
@@ -92,7 +114,7 @@ scene.add(new THREE.AmbientLight(0x888888))
 // =====================
 // === LOD terrain =====
 // =====================
-const CHUNK_RANGE=6
+let CHUNK_RANGE=6
 const chunks=[]
 
 function getLOD(d){
@@ -146,13 +168,26 @@ rebuild()
 // === water ===========
 // =====================
 const water=new THREE.Mesh(
-  new THREE.PlaneGeometry(5000,5000).rotateX(-Math.PI/2),
+  new THREE.PlaneGeometry(10000,10000).rotateX(-Math.PI/2),
   new THREE.MeshBasicMaterial({
     color:0x3355aa,transparent:true,opacity:0.6
   })
 )
 water.position.y=oceanHigh
 scene.add(water)
+
+// =====================
+// === view slider =====
+// =====================
+const slider=document.getElementById("viewRange")
+const label=document.getElementById("label")
+
+slider.oninput=()=>{
+  CHUNK_RANGE=Number(slider.value)
+  label.textContent="View: "+CHUNK_RANGE
+  scene.fog.far=CHUNK_RANGE*chankSize*3
+  rebuild()
+}
 
 // =====================
 // === controls ========
@@ -216,7 +251,7 @@ function animate(){
     scene.fog.near=1;scene.fog.far=25
   }else{
     scene.fog.color.set(0xaaccff)
-    scene.fog.near=200;scene.fog.far=1200
+    scene.fog.near=200
   }
 
   renderer.render(scene,camera)
