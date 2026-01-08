@@ -119,10 +119,10 @@ let CHUNK_RANGE = 8
 const chunks=[]
 
 function getLOD(d){
-  if(d<200)return 1
-  if(d<400)return 2
-  if(d<800)return 4
-  if(d<1600)return 8
+  if(d<20)return 1
+  if(d<40)return 2
+  if(d<80)return 4
+  if(d<160)return 8
   return 16
 }
 
